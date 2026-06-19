@@ -18,11 +18,11 @@ class ClientShell extends StatefulWidget {
 class _ClientShellState extends State<ClientShell> {
   int _currentIndex = 0;
 
-  final _pages = const [
-    HomeScreen(showBottomNav: false),
-    ScannerScreen(embedded: true),
-    CartScreen(showBottomNav: false),
-    ProfileScreen(showBottomNav: false),
+  List<Widget> get _pages => [
+    const HomeScreen(showBottomNav: false),
+    const ScannerScreen(),
+    const CartScreen(showBottomNav: false),
+    const ProfileScreen(showBottomNav: false),
   ];
 
   @override
