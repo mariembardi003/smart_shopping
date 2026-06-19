@@ -1,5 +1,6 @@
 ﻿import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import '../models/app_user.dart';
 
 class AuthService {
@@ -54,6 +55,40 @@ class AuthService {
       return createdUser;
     } on FirebaseAuthException catch (e) {
       throw _handleAuthError(e);
+    }
+  }
+
+  Future<AppUser> createCashier(String email, String password, String name) async {
+    FirebaseApp? secondaryApp;
+    try {
+      secondaryApp = await Firebase.initializeApp(
+        name: 'secondary-${DateTime.now().millisecondsSinceEpoch}',
+        options: Firebase.app().options,
+      );
+
+      final secondaryAuth = FirebaseAuth.instanceFor(app: secondaryApp);
+      final credential = await secondaryAuth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      if (credential.user == null) {
+        throw 'Impossible de créer le caissier.';
+      }
+
+      final uid = credential.user!.uid;
+      await _createUserData(uid, email, name, 'cashier');
+      final createdUser = await _getUserData(uid);
+      if (createdUser == null) {
+        throw 'Erreur lors de la création du profil du caissier.';
+      }
+      return createdUser;
+    } on FirebaseAuthException catch (e) {
+      throw _handleAuthError(e);
+    } finally {
+      if (secondaryApp != null) {
+        await secondaryApp.delete();
+      }
     }
   }
 

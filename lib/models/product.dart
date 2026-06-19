@@ -10,6 +10,8 @@ class Product {
   final String category;
   final int stock;
   final DateTime createdAt;
+  final bool isFeatured;
+  final bool isPromotional;
 
   Product({
     required this.id,
@@ -21,6 +23,8 @@ class Product {
     required this.category,
     required this.stock,
     required this.createdAt,
+    this.isFeatured = false,
+    this.isPromotional = false,
   });
 
   factory Product.fromFirestore(DocumentSnapshot doc) {
@@ -34,9 +38,11 @@ class Product {
       imageUrl: data['imageUrl'] ?? '',
       category: data['category'] ?? '',
       stock: data['stock'] ?? 0,
-      createdAt: data['createdAt'] != null 
+      createdAt: data['createdAt'] != null
           ? DateTime.parse(data['createdAt'])
           : DateTime.now(),
+      isFeatured: data['isFeatured'] == true,
+      isPromotional: data['isPromotional'] == true,
     );
   }
 
@@ -50,6 +56,8 @@ class Product {
       'category': category,
       'stock': stock,
       'createdAt': createdAt.toIso8601String(),
+      'isFeatured': isFeatured,
+      'isPromotional': isPromotional,
     };
   }
 
@@ -63,6 +71,8 @@ class Product {
     String? category,
     int? stock,
     DateTime? createdAt,
+    bool? isFeatured,
+    bool? isPromotional,
   }) {
     return Product(
       id: id ?? this.id,
@@ -74,6 +84,8 @@ class Product {
       category: category ?? this.category,
       stock: stock ?? this.stock,
       createdAt: createdAt ?? this.createdAt,
+      isFeatured: isFeatured ?? this.isFeatured,
+      isPromotional: isPromotional ?? this.isPromotional,
     );
   }
 }

@@ -1,204 +1,145 @@
 import 'package:flutter/material.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 
-import '../models/cart_item.dart';
-import '../models/order.dart';
 import '../providers/app_provider.dart';
-import '../services/firestore_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_theme.dart';
 
-class CashierScreen extends StatefulWidget {
+class CashierScreen extends StatelessWidget {
   const CashierScreen({super.key});
-
-  @override
-  State<CashierScreen> createState() => _CashierScreenState();
-}
-
-class _CashierScreenState extends State<CashierScreen> {
-  final MobileScannerController _scannerController = MobileScannerController(
-    detectionSpeed: DetectionSpeed.normal,
-    facing: CameraFacing.back,
-  );
-  final List<CartItem> _saleItems = [];
-  bool _isProcessing = false;
-  String? _lastScannedCode;
-
-  @override
-  void dispose() {
-    _scannerController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _addScannedProduct(String barcode) async {
-    if (_isProcessing || barcode == _lastScannedCode) return;
-    setState(() {
-      _isProcessing = true;
-      _lastScannedCode = barcode;
-    });
-
-    final product = await context.read<AppProvider>().getProductByBarcode(barcode);
-    if (!mounted) return;
-
-    if (product != null) {
-      final index = _saleItems.indexWhere((item) => item.product.id == product.id);
-      if (index != -1) {
-        _saleItems[index].quantity++;
-      } else {
-        _saleItems.add(CartItem(id: DateTime.now().microsecondsSinceEpoch.toString(), product: product, quantity: 1));
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${product.name} ajouté à la vente'), backgroundColor: Colors.green.shade700),
-      );
-    } else {
-      _showQrDialog(barcode);
-    }
-
-    await Future.delayed(const Duration(seconds: 2));
-    if (mounted) {
-      setState(() {
-        _isProcessing = false;
-        _lastScannedCode = null;
-      });
-    }
-  }
-
-  double get _saleTotal => _saleItems.fold(0, (sum, item) => sum + item.totalPrice);
-
-  void _removeSaleItem(String id) {
-    setState(() {
-      _saleItems.removeWhere((item) => item.id == id);
-    });
-  }
-
-  Future<void> _confirmPayment() async {
-    if (_saleItems.isEmpty) return;
-    final order = Order(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      userId: 'cashier-${DateTime.now().millisecondsSinceEpoch}',
-      items: List.from(_saleItems),
-      totalAmount: _saleTotal,
-      status: OrderStatus.processing,
-      createdAt: DateTime.now(),
-      shippingAddress: 'A emporter',
-      paymentMethod: 'Espèces',
-    );
-    await FirestoreService().createOrder(order);
-    await FirestoreService().updateProductStock(_saleItems);
-    setState(() {
-      _saleItems.clear();
-    });
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Paiement validé, vente enregistrée'), backgroundColor: Colors.green),
-    );
-  }
-
-  void _showQrDialog(String data) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('QR Code détecté'),
-        content: Text('Contenu : $data'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Fermer')),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text('Espace Caissier'),
-        backgroundColor: Colors.green.shade700,
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            flex: 3,
-            child: Stack(
-              children: [
-                MobileScanner(
-                  controller: _scannerController,
-                  onDetect: (capture) {
-                    final barcodes = capture.barcodes;
-                    if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-                      _addScannedProduct(barcodes.first.rawValue!);
-                    }
-                  },
-                ),
-                Container(
-                  decoration: const BoxDecoration(color: Color.fromRGBO(0, 0, 0, 0.35)),
-                  child: Center(
-                    child: Container(
-                      width: 260,
-                      height: 260,
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.green.shade700, width: 3),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                  ),
-                ),
-                if (_isProcessing)
-                  const Positioned(
-                    right: 16,
-                    top: 16,
-                    child: CircularProgressIndicator(color: Colors.white),
-                  ),
-              ],
-            ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout_rounded),
+            onPressed: () async {
+              final navigator = Navigator.of(context);
+              await context.read<AppProvider>().signOut();
+              if (context.mounted) navigator.pushReplacementNamed('/login');
+            },
           ),
-          Expanded(
-            flex: 4,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: AppColors.headerGradient,
+                borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+              ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Vente en cours', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green.shade700)),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: _saleItems.isEmpty
-                        ? Center(
-                            child: Text('Scannez des produits pour commencer', style: TextStyle(color: Colors.grey.shade600)),
-                          )
-                        : ListView.separated(
-                            itemCount: _saleItems.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 12),
-                            itemBuilder: (context, index) {
-                              final item = _saleItems[index];
-                              return ListTile(
-                                tileColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                title: Text(item.product.name),
-                                subtitle: Text('${item.quantity} x ${item.product.price.toStringAsFixed(2)} TND'),
-                                trailing: Text('${item.totalPrice.toStringAsFixed(2)} TND'),
-                                leading: IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                  onPressed: () => _removeSaleItem(item.id),
-                                ),
-                              );
-                            },
-                          ),
+                  const Text(
+                    'Smart Shopping Caissier',
+                    style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800),
                   ),
-                  const SizedBox(height: 12),
-                  Text('Total: ${_saleTotal.toStringAsFixed(2)} TND', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: _saleItems.isEmpty ? null : _confirmPayment,
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700),
-                      child: const Text('Valider le paiement'),
-                    ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Validez les paiements clients via QR code',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.85)),
                   ),
                 ],
               ),
             ),
+            const SizedBox(height: 24),
+            _ActionCard(
+              icon: Icons.qr_code_scanner_rounded,
+              title: 'Scanner QR client',
+              subtitle: 'Valider le paiement d\'une commande client',
+              color: AppColors.primary,
+              isPrimary: true,
+              onTap: () => Navigator.pushNamed(context, '/cashier/validate-qr'),
+            ),
+            const SizedBox(height: 14),
+            _ActionCard(
+              icon: Icons.receipt_long_outlined,
+              title: 'Gestion des factures',
+              subtitle: 'Consulter et imprimer les factures',
+              color: Colors.blue.shade600,
+              onTap: () => Navigator.pushNamed(context, '/cashier/invoices'),
+            ),
+            const SizedBox(height: 14),
+            _ActionCard(
+              icon: Icons.add_shopping_cart_outlined,
+              title: 'Nouvelle facture',
+              subtitle: 'Créer une facture manuelle',
+              color: Colors.orange.shade700,
+              onTap: () => Navigator.pushNamed(context, '/cashier/create-invoice'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final bool isPrimary;
+  final VoidCallback onTap;
+
+  const _ActionCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+    this.isPrimary = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.white,
+      borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+            boxShadow: isPrimary ? AppColors.elevatedShadow : AppColors.cardShadow,
+            border: isPrimary ? Border.all(color: AppColors.primary.withValues(alpha: 0.3), width: 2) : null,
           ),
-        ],
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                ),
+                child: Icon(icon, color: color, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    Text(subtitle, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                  ],
+                ),
+              ),
+              Icon(Icons.arrow_forward_ios_rounded, size: 16, color: color),
+            ],
+          ),
+        ),
       ),
     );
   }

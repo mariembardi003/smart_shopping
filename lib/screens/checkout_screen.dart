@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/app_provider.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_theme.dart';
+import '../widgets/custom_button.dart';
+import '../widgets/empty_state.dart';
 
 class CheckoutScreen extends StatefulWidget {
   const CheckoutScreen({super.key});
@@ -12,44 +16,20 @@ class CheckoutScreen extends StatefulWidget {
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _addressController = TextEditingController();
-  final _phoneController = TextEditingController();
-  String _paymentMethod = 'Carte bancaire';
-
-  @override
-  void dispose() {
-    _addressController.dispose();
-    _phoneController.dispose();
-    super.dispose();
-  }
 
   Future<void> _submitOrder() async {
     if (!_formKey.currentState!.validate()) return;
-
     final provider = context.read<AppProvider>();
-    final success = await provider.createOrder(
-      shippingAddress: _addressController.text.trim(),
-      phone: _phoneController.text.trim(),
-      paymentMethod: _paymentMethod,
-    );
-
+    final order = await provider.createOrder(paymentMethod: 'Espèces');
     if (!mounted) return;
-
-    if (success) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Commande passée avec succès!'),
-            backgroundColor: Colors.green.shade700,
-          ),
-        );
-        Navigator.pushReplacementNamed(context, '/orders');
-      }
+    if (order != null) {
+      Navigator.pushReplacementNamed(context, '/order-confirmation', arguments: order);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(provider.errorMessage ?? 'Erreur lors de la commande'),
-          backgroundColor: Colors.red.shade700,
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -58,138 +38,112 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Paiement'),
-        backgroundColor: Colors.green.shade700,
-        foregroundColor: Colors.white,
-      ),
+      backgroundColor: AppColors.background,
+      appBar: AppBar(title: const Text('Checkout')),
       body: Consumer<AppProvider>(
-        builder: (context, provider, child) {
+        builder: (context, provider, _) {
           if (provider.cartItems.isEmpty) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.shopping_cart_outlined, size: 80, color: Colors.grey.shade400),
-                    const SizedBox(height: 16),
-                    const Text('Votre panier est vide'),
-                    const SizedBox(height: 8),
-                    ElevatedButton(
-                      onPressed: () => Navigator.pushReplacementNamed(context, '/home'),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700),
-                      child: const Text('Retour à la boutique'),
-                    ),
-                  ],
-                ),
-              ),
+            return EmptyState(
+              icon: Icons.shopping_cart_outlined,
+              title: 'Panier vide',
+              subtitle: 'Ajoutez des produits avant de passer commande.',
+              actionLabel: 'Retour à la boutique',
+              onAction: () => Navigator.pushReplacementNamed(context, '/dashboard'),
             );
           }
 
-          return Padding(
-            padding: const EdgeInsets.all(24.0),
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
             child: Form(
               key: _formKey,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    'Adresse de livraison',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green.shade700),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _addressController,
-                    decoration: const InputDecoration(
-                      labelText: 'Adresse complète',
-                      prefixIcon: Icon(Icons.home_outlined),
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      gradient: AppColors.primaryGradient,
+                      borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+                      boxShadow: AppColors.elevatedShadow,
                     ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Veuillez entrer une adresse de livraison';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _phoneController,
-                    keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration(
-                      labelText: 'Téléphone',
-                      prefixIcon: Icon(Icons.phone_outlined),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Résumé de commande',
+                          style: TextStyle(color: Colors.white70, fontSize: 14),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '${provider.cartTotal.toStringAsFixed(2)} TND',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 36,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          '${provider.cartItemCount} article${provider.cartItemCount > 1 ? 's' : ''}',
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.9)),
+                        ),
+                      ],
                     ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Veuillez entrer un numéro de téléphone';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Mode de paiement',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green.shade700),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: _paymentMethod,
-                    items: const [
-                      DropdownMenuItem(value: 'Carte bancaire', child: Text('Carte bancaire')),
-                      DropdownMenuItem(value: 'Espèces', child: Text('Espèces')),
-                      DropdownMenuItem(value: 'Mobile', child: Text('Paiement mobile')),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() {
-                          _paymentMethod = value;
-                        });
-                      }
-                    },
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.payment_outlined),
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                  Text(
-                    'Total de la commande',
-                    style: TextStyle(fontSize: 16, color: Colors.grey.shade700),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${provider.cartTotal.toStringAsFixed(2)} TND',
-                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.green.shade700),
                   ),
                   const SizedBox(height: 24),
-                  SizedBox(
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        if (provider.isLoading) return;
-                        _submitOrder();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: provider.isLoading ? Colors.green.shade400 : Colors.green.shade700,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ...provider.cartItems.map(
+                    (item) => Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                        boxShadow: AppColors.cardShadow,
                       ),
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 250),
-                        child: provider.isLoading
-                            ? const SizedBox(
-                                height: 22,
-                                width: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
-                              )
-                            : const Text(
-                                'Confirmer la commande',
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                              ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(item.product.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          ),
+                          Text('×${item.quantity}'),
+                          const SizedBox(width: 16),
+                          Text(
+                            '${item.totalPrice.toStringAsFixed(2)} TND',
+                            style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.primary),
+                          ),
+                        ],
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 24),
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: AppColors.white,
+                      borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+                      boxShadow: AppColors.cardShadow,
+                    ),
+                    child: const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Paiement', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                        SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Icon(Icons.payments_outlined, color: AppColors.primary),
+                            SizedBox(width: 12),
+                            Text('Espèces à la livraison', style: TextStyle(fontWeight: FontWeight.w500)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  CustomButton(
+                    text: 'Confirmer la commande',
+                    icon: Icons.check_circle_outline_rounded,
+                    isLoading: provider.isLoading,
+                    onPressed: _submitOrder,
                   ),
                 ],
               ),

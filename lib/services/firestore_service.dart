@@ -49,7 +49,10 @@ class FirestoreService {
   }
 
   Future<void> updateProduct(Product product) async {
-    await _firestore.collection('products').doc(product.id).update(product.toFirestore());
+    await _firestore
+        .collection('products')
+        .doc(product.id)
+        .update(product.toFirestore());
   }
 
   Future<void> deleteProduct(String id) async {
@@ -63,9 +66,7 @@ class FirestoreService {
 
     for (final item in items) {
       final productRef = _firestore.collection('products').doc(item.product.id);
-      batch.update(productRef, {
-        'stock': FieldValue.increment(-item.quantity),
-      });
+      batch.update(productRef, {'stock': FieldValue.increment(-item.quantity)});
     }
 
     await batch.commit();
@@ -105,45 +106,76 @@ class FirestoreService {
         .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs.map((doc) {
-        final data = doc.data();
-        return models.Order.fromFirestore(doc.id, data);
-      }).toList();
-    });
+          return snapshot.docs.map((doc) {
+            final data = doc.data();
+            return models.Order.fromFirestore(doc.id, data);
+          }).toList();
+        });
   }
 
   Future<void> createOrder(models.Order order) async {
-    await _firestore.collection('orders').doc(order.id).set(order.toFirestore());
+    await _firestore
+        .collection('orders')
+        .doc(order.id)
+        .set(order.toFirestore());
   }
 
-  Future<void> updateOrderStatus(String orderId, models.OrderStatus status) async {
+  Future<void> updateOrderStatus(
+    String orderId,
+    models.OrderStatus status,
+  ) async {
     await _firestore.collection('orders').doc(orderId).update({
       'status': status.name,
     });
   }
 
-  Future<void> updateUserData(String uid, Map<String, dynamic> updateData) async {
+  Future<models.Order?> getOrderById(String orderId) async {
+    final doc = await _firestore.collection('orders').doc(orderId).get();
+    if (!doc.exists || doc.data() == null) return null;
+    return models.Order.fromFirestore(doc.id, doc.data()!);
+  }
+
+  Future<void> validateOrderPayment({
+    required String orderId,
+    required String cashierId,
+  }) async {
+    await _firestore.collection('orders').doc(orderId).update({
+      'status': models.OrderStatus.delivered.name,
+      'isPaid': true,
+      'validatedAt': DateTime.now().toIso8601String(),
+      'validatedBy': cashierId,
+    });
+  }
+
+  Future<void> updateUserData(
+    String uid,
+    Map<String, dynamic> updateData,
+  ) async {
     await _firestore.collection('users').doc(uid).update(updateData);
   }
 
   Future<void> updateUserRole(String uid, String role) async {
-    await _firestore.collection('users').doc(uid).update({
-      'role': role,
-    });
+    await _firestore.collection('users').doc(uid).update({'role': role});
   }
 
   Stream<List<models.Order>> getOrders() {
-    return _firestore.collection('orders').orderBy('createdAt', descending: true).snapshots().map((snapshot) {
-      return snapshot.docs.map((doc) {
-        final data = doc.data();
-        return models.Order.fromFirestore(doc.id, data);
-      }).toList();
-    });
+    return _firestore
+        .collection('orders')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map((doc) {
+            final data = doc.data();
+            return models.Order.fromFirestore(doc.id, data);
+          }).toList();
+        });
   }
 
-  Stream<List<AppUser>> getUsers({String? role}) {
+  Stream<List<AppUser>> getUsers({String? role, List<String>? roles}) {
     Query<Map<String, dynamic>> query = _firestore.collection('users');
-    if (role != null) {
+    if (roles != null && roles.isNotEmpty) {
+      query = query.where('role', whereIn: roles);
+    } else if (role != null) {
       query = query.where('role', isEqualTo: role);
     }
     return query.snapshots().map((snapshot) {
@@ -153,13 +185,24 @@ class FirestoreService {
     });
   }
 
+  Stream<List<AppUser>> getCashiers() {
+    return getUsers(role: 'cashier');
+  }
+
+  Future<void> deleteUserProfile(String uid) async {
+    await _firestore.collection('users').doc(uid).delete();
+  }
+
   Future<int> getProductCount() async {
     final snapshot = await _firestore.collection('products').get();
     return snapshot.size;
   }
 
   Future<int> getUsersCountByRole(String role) async {
-    final snapshot = await _firestore.collection('users').where('role', isEqualTo: role).get();
+    final snapshot = await _firestore
+        .collection('users')
+        .where('role', isEqualTo: role)
+        .get();
     return snapshot.size;
   }
 
@@ -168,24 +211,37 @@ class FirestoreService {
     final orders = querySnapshot.docs.map((doc) {
       return models.Order.fromFirestore(doc.id, doc.data());
     }).toList();
-    final totalSales = orders.fold(0.0, (total, order) => total + order.totalAmount);
-    return {
-      'orders': orders.length,
-      'sales': totalSales,
-    };
+    final totalSales = orders.fold(
+      0.0,
+      (total, order) => total + order.totalAmount,
+    );
+    return {'orders': orders.length, 'sales': totalSales};
   }
 
   Future<void> createComplaint(Complaint complaint) async {
-    await _firestore.collection('complaints').doc(complaint.id).set(complaint.toFirestore());
+    await _firestore
+        .collection('complaints')
+        .doc(complaint.id)
+        .set(complaint.toFirestore());
   }
 
   Stream<List<Complaint>> getComplaints() {
-    return _firestore.collection('complaints').orderBy('createdAt', descending: true).snapshots().map((snapshot) {
-      return snapshot.docs.map((doc) => Complaint.fromFirestore(doc.id, doc.data())).toList();
-    });
+    return _firestore
+        .collection('complaints')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map((doc) => Complaint.fromFirestore(doc.id, doc.data()))
+              .toList();
+        });
   }
 
-  Future<void> respondToComplaint(String complaintId, String response, ComplaintStatus status) async {
+  Future<void> respondToComplaint(
+    String complaintId,
+    String response,
+    ComplaintStatus status,
+  ) async {
     await _firestore.collection('complaints').doc(complaintId).update({
       'response': response,
       'status': status.name,
@@ -203,6 +259,8 @@ class FirestoreService {
         'imageUrl': '',
         'category': 'Produits laitiers',
         'stock': 100,
+        'isFeatured': true,
+        'isPromotional': false,
         'createdAt': DateTime.now().toIso8601String(),
       },
       {
@@ -213,6 +271,8 @@ class FirestoreService {
         'imageUrl': '',
         'category': 'Boulangerie',
         'stock': 50,
+        'isFeatured': true,
+        'isPromotional': true,
         'createdAt': DateTime.now().toIso8601String(),
       },
       {
@@ -223,6 +283,8 @@ class FirestoreService {
         'imageUrl': '',
         'category': 'Boissons',
         'stock': 30,
+        'isFeatured': true,
+        'isPromotional': false,
         'createdAt': DateTime.now().toIso8601String(),
       },
       {
@@ -233,6 +295,8 @@ class FirestoreService {
         'imageUrl': '',
         'category': 'Confiseries',
         'stock': 25,
+        'isFeatured': true,
+        'isPromotional': true,
         'createdAt': DateTime.now().toIso8601String(),
       },
       {
@@ -243,6 +307,8 @@ class FirestoreService {
         'imageUrl': '',
         'category': 'Boissons',
         'stock': 200,
+        'isFeatured': false,
+        'isPromotional': true,
         'createdAt': DateTime.now().toIso8601String(),
       },
       {
@@ -253,6 +319,8 @@ class FirestoreService {
         'imageUrl': '',
         'category': 'Épicerie',
         'stock': 80,
+        'isFeatured': false,
+        'isPromotional': true,
         'createdAt': DateTime.now().toIso8601String(),
       },
       {
@@ -263,6 +331,8 @@ class FirestoreService {
         'imageUrl': '',
         'category': 'Épicerie',
         'stock': 60,
+        'isFeatured': false,
+        'isPromotional': false,
         'createdAt': DateTime.now().toIso8601String(),
       },
       {
@@ -273,6 +343,8 @@ class FirestoreService {
         'imageUrl': '',
         'category': 'Huiles',
         'stock': 20,
+        'isFeatured': false,
+        'isPromotional': false,
         'createdAt': DateTime.now().toIso8601String(),
       },
     ];

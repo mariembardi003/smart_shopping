@@ -12,14 +12,67 @@ class ScannerScreen extends StatefulWidget {
 }
 
 class _ScannerScreenState extends State<ScannerScreen> {
-  final MobileScannerController _scannerController = MobileScannerController(
-    detectionSpeed: DetectionSpeed.normal,
-    facing: CameraFacing.back,
-    torchEnabled: false,
-  );
+  late MobileScannerController _scannerController;
   final FirestoreService _firestoreService = FirestoreService();
   bool _isProcessing = false;
   String? _lastScannedCode;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeCamera();
+  }
+
+  Future<void> _initializeCamera() async {
+    // Création du contrôleur avec la caméra arrière par défaut
+    _scannerController = MobileScannerController(
+      detectionSpeed: DetectionSpeed.normal,
+      facing: CameraFacing.back,
+      torchEnabled: false,
+    );
+
+    // Demander la permission
+    final permission = await _scannerController.requestPermission();
+    if (permission != PermissionStatus.granted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Permission caméra refusée')),
+        );
+      }
+      return;
+    }
+
+    // Tenter de démarrer la caméra
+    try {
+      await _scannerController.start();
+    } catch (e) {
+      // Si la caméra arrière n'existe pas, tenter la caméra avant
+      if (e.toString().contains('NotFoundError')) {
+        try {
+          await _scannerController.dispose();
+          _scannerController = MobileScannerController(
+            detectionSpeed: DetectionSpeed.normal,
+            facing: CameraFacing.front,
+            torchEnabled: false,
+          );
+          await _scannerController.start();
+          if (mounted) setState(() {});
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Aucune caméra trouvée : $e')),
+            );
+          }
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur caméra : $e')),
+          );
+        }
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -28,39 +81,52 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   Future<void> _handleBarcode(String barcode) async {
+    // Éviter les doubles traitements
     if (_isProcessing || barcode == _lastScannedCode) return;
-    
+
     setState(() {
       _isProcessing = true;
       _lastScannedCode = barcode;
     });
 
-    final product = await _firestoreService.getProductByBarcode(barcode);
+    try {
+      // Appel Firestore
+      final product = await _firestoreService.getProductByBarcode(barcode);
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    if (product != null) {
-      // Add to cart
-      context.read<AppProvider>().addToCart(product);
-      
-      // Show success dialog
-      _showProductFoundDialog(product.name, product.price);
-    } else {
-      // Show QR code dialog if no product matches
-      _showQrCodeDialog(barcode);
-    }
+      if (product != null) {
+        // Ajout au panier
+        context.read<AppProvider>().addToCart(product);
+        _showProductFoundDialog(product.name, product.price);
+      } else {
+        _showProductNotFoundDialog(barcode);
+      }
 
-    // Reset after delay to allow re-scanning
-    await Future.delayed(const Duration(seconds: 2));
-    if (mounted) {
-      setState(() {
-        _isProcessing = false;
-        _lastScannedCode = null;
-      });
+      // Délai pour éviter les scans multiples trop rapides
+      await Future.delayed(const Duration(seconds: 1));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de la recherche : $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      // Réinitialiser l'état du scanner
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _lastScannedCode = null;
+        });
+      }
     }
   }
 
   void _showProductFoundDialog(String productName, double price) {
+    if (!mounted) return;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -131,27 +197,61 @@ class _ScannerScreenState extends State<ScannerScreen> {
     );
   }
 
-  void _showQrCodeDialog(String data) {
+  void _showProductNotFoundDialog(String barcode) {
+    if (!mounted) return;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
         ),
-        title: const Text('QR Code détecté'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Valeur scannée :'),
-            const SizedBox(height: 12),
-            Text(data, style: const TextStyle(fontWeight: FontWeight.bold)),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.orange.shade700,
+                size: 48,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Produit non trouvé',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.orange.shade700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Code: $barcode',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Ce produit n\'existe pas dans la base de données.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
           ],
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Fermer'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange.shade700,
+            ),
+            child: const Text('OK'),
           ),
         ],
       ),
@@ -171,7 +271,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
         elevation: 0,
         actions: [
           IconButton(
-            icon: ValueListenableBuilder<MobileScannerState>(
+            icon: ValueListenableBuilder(
               valueListenable: _scannerController,
               builder: (context, state, child) {
                 return Icon(
@@ -191,21 +291,55 @@ class _ScannerScreenState extends State<ScannerScreen> {
       ),
       body: Stack(
         children: [
-          // Scanner
-          MobileScanner(
-            controller: _scannerController,
-            onDetect: (capture) {
-              final List<Barcode> barcodes = capture.barcodes;
-              if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-                _handleBarcode(barcodes.first.rawValue!);
+          // Scanner ou message d'erreur
+          ValueListenableBuilder(
+            valueListenable: _scannerController,
+            builder: (context, state, child) {
+              // Si une erreur est détectée par le contrôleur
+              if (state.error != null) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.no_photography, size: 64, color: Colors.grey),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Caméra indisponible',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        state.error!.errorMessage ?? 'Erreur inconnue',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _initializeCamera,
+                        child: const Text('Réessayer'),
+                      ),
+                    ],
+                  ),
+                );
               }
+
+              // Sinon afficher le scanner
+              return MobileScanner(
+                controller: _scannerController,
+                onDetect: (capture) {
+                  final barcodes = capture.barcodes;
+                  if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+                    _handleBarcode(barcodes.first.rawValue!);
+                  }
+                },
+              );
             },
           ),
 
-          // Overlay
+          // Overlay (cadre vert)
           Container(
-            decoration: const BoxDecoration(
-              color: Color.fromRGBO(0, 0, 0, 0.3),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.3),
             ),
             child: Center(
               child: Container(
@@ -220,7 +354,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
             ),
           ),
 
-          // Instructions
+          // Instructions et indicateur de chargement
           Positioned(
             bottom: 100,
             left: 0,
@@ -251,7 +385,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
             ),
           ),
 
-          // Back Button
+          // Bouton retour
           Positioned(
             bottom: 32,
             left: 24,

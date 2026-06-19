@@ -17,6 +17,9 @@ class Order {
   final DateTime createdAt;
   final String? shippingAddress;
   final String? paymentMethod;
+  final bool isPaid;
+  final DateTime? validatedAt;
+  final String? validatedBy;
 
   Order({
     required this.id,
@@ -27,6 +30,9 @@ class Order {
     required this.createdAt,
     this.shippingAddress,
     this.paymentMethod,
+    this.isPaid = false,
+    this.validatedAt,
+    this.validatedBy,
   });
 
   factory Order.fromFirestore(String docId, Map<String, dynamic> data) {
@@ -49,6 +55,11 @@ class Order {
           : DateTime.now(),
       shippingAddress: data['shippingAddress'],
       paymentMethod: data['paymentMethod'],
+      isPaid: data['isPaid'] == true,
+      validatedAt: data['validatedAt'] != null
+          ? DateTime.tryParse(data['validatedAt'])
+          : null,
+      validatedBy: data['validatedBy'],
     );
   }
 
@@ -61,8 +72,14 @@ class Order {
       'createdAt': createdAt.toIso8601String(),
       'shippingAddress': shippingAddress,
       'paymentMethod': paymentMethod,
+      'isPaid': isPaid,
+      if (validatedAt != null) 'validatedAt': validatedAt!.toIso8601String(),
+      if (validatedBy != null) 'validatedBy': validatedBy,
     };
   }
+
+  bool get isPaymentValidated =>
+      isPaid || status == OrderStatus.delivered;
 
   Order copyWith({
     String? id,
@@ -73,6 +90,9 @@ class Order {
     DateTime? createdAt,
     String? shippingAddress,
     String? paymentMethod,
+    bool? isPaid,
+    DateTime? validatedAt,
+    String? validatedBy,
   }) {
     return Order(
       id: id ?? this.id,
@@ -83,6 +103,9 @@ class Order {
       createdAt: createdAt ?? this.createdAt,
       shippingAddress: shippingAddress ?? this.shippingAddress,
       paymentMethod: paymentMethod ?? this.paymentMethod,
+      isPaid: isPaid ?? this.isPaid,
+      validatedAt: validatedAt ?? this.validatedAt,
+      validatedBy: validatedBy ?? this.validatedBy,
     );
   }
 }

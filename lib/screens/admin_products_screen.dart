@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -22,9 +23,13 @@ class _AdminProductsScreenState extends State<AdminProductsScreen> {
   final _categoryController = TextEditingController();
   final _stockController = TextEditingController();
   final _imageUrlController = TextEditingController();
+  final _searchController = TextEditingController();
   bool _isProcessing = false;
   String? _selectedProductId;
   String? _uploadedImageUrl;
+  String _searchTerm = '';
+  bool _isFeatured = false;
+  bool _isPromotional = false;
 
   @override
   void dispose() {
@@ -35,7 +40,16 @@ class _AdminProductsScreenState extends State<AdminProductsScreen> {
     _categoryController.dispose();
     _stockController.dispose();
     _imageUrlController.dispose();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  bool _matchesSearch(Product product) {
+    final term = _searchTerm.toLowerCase();
+    if (term.isEmpty) return true;
+    return product.name.toLowerCase().contains(term) ||
+        product.category.toLowerCase().contains(term) ||
+        product.barcode.toLowerCase().contains(term);
   }
 
   Future<void> _openProductForm([Product? product]) async {
@@ -48,11 +62,15 @@ class _AdminProductsScreenState extends State<AdminProductsScreen> {
     _stockController.text = product != null ? product.stock.toString() : '10';
     _imageUrlController.text = product?.imageUrl ?? '';
     _uploadedImageUrl = product?.imageUrl;
+    _isFeatured = product?.isFeatured ?? false;
+    _isPromotional = product?.isPromotional ?? false;
 
     await showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
           title: Text(product == null ? 'Ajouter un produit' : 'Modifier le produit'),
           content: SingleChildScrollView(
             child: Form(
@@ -138,19 +156,32 @@ class _AdminProductsScreenState extends State<AdminProductsScreen> {
                       ),
                     ),
                   ],
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    title: const Text('Produit vedette'),
+                    subtitle: const Text('Visible dans la section vedettes (client)'),
+                    value: _isFeatured,
+                    onChanged: (v) => setDialogState(() => _isFeatured = v),
+                  ),
+                  SwitchListTile(
+                    title: const Text('Produit en promotion'),
+                    subtitle: const Text('Visible dans la section promotions (client)'),
+                    value: _isPromotional,
+                    onChanged: (v) => setDialogState(() => _isPromotional = v),
+                  ),
                 ],
               ),
             ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Annuler'),
             ),
             ElevatedButton(
               onPressed: _isProcessing ? null : () async {
                 if (!_formKey.currentState!.validate()) return;
-                final navigator = Navigator.of(context);
+                final navigator = Navigator.of(dialogContext);
                 await _saveProduct();
                 if (mounted) navigator.pop();
               },
@@ -164,6 +195,8 @@ class _AdminProductsScreenState extends State<AdminProductsScreen> {
                   : const Text('Enregistrer'),
             ),
           ],
+            );
+          },
         );
       },
     );
@@ -221,6 +254,8 @@ class _AdminProductsScreenState extends State<AdminProductsScreen> {
       category: category.isEmpty ? 'Autre' : category,
       stock: stock,
       createdAt: DateTime.now(),
+      isFeatured: _isFeatured,
+      isPromotional: _isPromotional,
     );
 
     setState(() {
@@ -289,33 +324,60 @@ class _AdminProductsScreenState extends State<AdminProductsScreen> {
       ),
       body: Consumer<AppProvider>(
         builder: (context, provider, child) {
-          final products = provider.products;
-          return Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: products.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.inventory_2_outlined, size: 72, color: Colors.grey.shade400),
-                        const SizedBox(height: 16),
-                        const Text('Aucun produit disponible pour le moment.'),
-                        const SizedBox(height: 8),
-                        const Text('Ajoutez un produit pour commencer.'),
-                      ],
-                    ),
-                  )
-                : GridView.builder(
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: MediaQuery.of(context).size.width > 1000 ? 3 : MediaQuery.of(context).size.width > 650 ? 2 : 1,
-                      mainAxisSpacing: 16,
-                      crossAxisSpacing: 16,
-                      childAspectRatio: 1.1,
-                    ),
-                    itemCount: products.length,
-                    itemBuilder: (context, index) {
-                      final product = products[index];
-                      return Card(
+          final products = provider.products.where(_matchesSearch).toList();
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: (value) => setState(() => _searchTerm = value),
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search),
+                    hintText: 'Rechercher par nom, catégorie ou code-barres',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    suffixIcon: _searchTerm.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _searchTerm = '');
+                            },
+                          )
+                        : null,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: products.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.inventory_2_outlined, size: 72, color: Colors.grey.shade400),
+                            const SizedBox(height: 16),
+                            Text(_searchTerm.isEmpty
+                                ? 'Aucun produit disponible pour le moment.'
+                                : 'Aucun produit ne correspond à votre recherche.'),
+                            if (_searchTerm.isEmpty) ...[
+                              const SizedBox(height: 8),
+                              const Text('Ajoutez un produit pour commencer.'),
+                            ],
+                          ],
+                        ),
+                      )
+                    : GridView.builder(
+                        padding: const EdgeInsets.all(16),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: MediaQuery.of(context).size.width > 1000 ? 3 : MediaQuery.of(context).size.width > 650 ? 2 : 1,
+                          mainAxisSpacing: 16,
+                          crossAxisSpacing: 16,
+                          childAspectRatio: 1.1,
+                        ),
+                        itemCount: products.length,
+                        itemBuilder: (context, index) {
+                          final product = products[index];
+                          return Card(
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         elevation: 3,
                         child: Padding(
@@ -376,6 +438,8 @@ class _AdminProductsScreenState extends State<AdminProductsScreen> {
                       );
                     },
                   ),
+              ),
+            ],
           );
         },
       ),

@@ -4,6 +4,7 @@ class Complaint {
   final String id;
   final String userId;
   final String userName;
+  final String? userEmail;
   final String subject;
   final String message;
   final ComplaintStatus status;
@@ -14,6 +15,7 @@ class Complaint {
     required this.id,
     required this.userId,
     required this.userName,
+    this.userEmail,
     required this.subject,
     required this.message,
     required this.status,
@@ -26,6 +28,7 @@ class Complaint {
       id: docId,
       userId: data['userId'] ?? '',
       userName: data['userName'] ?? '',
+      userEmail: data['userEmail'],
       subject: data['subject'] ?? '',
       message: data['message'] ?? '',
       status: ComplaintStatus.values.firstWhere(
@@ -43,6 +46,7 @@ class Complaint {
     return {
       'userId': userId,
       'userName': userName,
+      'userEmail': userEmail,
       'subject': subject,
       'message': message,
       'status': status.name,
@@ -55,6 +59,7 @@ class Complaint {
     String? id,
     String? userId,
     String? userName,
+    String? userEmail,
     String? subject,
     String? message,
     ComplaintStatus? status,
@@ -65,6 +70,7 @@ class Complaint {
       id: id ?? this.id,
       userId: userId ?? this.userId,
       userName: userName ?? this.userName,
+      userEmail: userEmail ?? this.userEmail,
       subject: subject ?? this.subject,
       message: message ?? this.message,
       status: status ?? this.status,

@@ -1,119 +1,193 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../providers/app_provider.dart';
 import '../services/firestore_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_theme.dart';
+import '../widgets/stat_card.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
 
   Future<Map<String, dynamic>> _loadStats() async {
-    final totalProducts = await FirestoreService().getProductCount();
-    final summary = await FirestoreService().getOrderSummary();
-    final cashiers = await FirestoreService().getUsersCountByRole('cashier');
+    final firestore = FirestoreService();
+    final totalProducts = await firestore.getProductCount();
+    final summary = await firestore.getOrderSummary();
+    final cashiers = await firestore.getUsersCountByRole('cashier');
+    final clients = await firestore.getUsersCountByRole('client');
+    final admins = await firestore.getUsersCountByRole('admin');
+    final complaints = await firestore.getComplaints().first;
     return {
       'products': totalProducts,
       'orders': summary['orders'] ?? 0,
       'sales': summary['sales'] ?? 0.0,
       'cashiers': cashiers,
+      'users': clients + cashiers + admins,
+      'complaints': complaints.length,
     };
-  }
-
-  Widget _statCard(String title, String value, Color color, IconData icon) {
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            CircleAvatar(
-              backgroundColor: color.withValues(alpha: 0.15),
-              child: Icon(icon, color: color),
-            ),
-            const SizedBox(width: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontSize: 14, color: Colors.black54)),
-                const SizedBox(height: 8),
-                Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final isWide = MediaQuery.of(context).size.width > 900;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tableau de bord admin'),
-        backgroundColor: Colors.green.shade700,
-        foregroundColor: Colors.white,
-      ),
-      body: FutureBuilder<Map<String, dynamic>>(
-        future: _loadStats(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Erreur: ${snapshot.error}'));
-          }
-          final stats = snapshot.data ?? {};
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                _statCard('Produits', '${stats['products'] ?? 0}', Colors.green.shade700, Icons.inventory_2_outlined),
-                const SizedBox(height: 12),
-                _statCard('Commandes', '${stats['orders'] ?? 0}', Colors.orange.shade700, Icons.receipt_long),
-                const SizedBox(height: 12),
-                _statCard('Ventes', '${(stats['sales'] ?? 0.0).toStringAsFixed(2)} TND', Colors.purple.shade700, Icons.monetization_on_outlined),
-                const SizedBox(height: 12),
-                _statCard('Caissiers', '${stats['cashiers'] ?? 0}', Colors.blue.shade700, Icons.person_outline),
-                const SizedBox(height: 24),
-                Expanded(
-                  child: GridView.count(
-                    crossAxisCount: MediaQuery.of(context).size.width > 900 ? 4 : 2,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    childAspectRatio: 1.1,
-                    children: [
-                      _dashboardButton(context, 'Produits', Icons.shopping_bag_outlined, '/admin/products'),
-                      _dashboardButton(context, 'Commandes', Icons.receipt_long, '/admin/orders'),
-                      _dashboardButton(context, 'Réclamations', Icons.support_agent, '/admin/support'),
-                      _dashboardButton(context, 'Caissiers', Icons.person_search_outlined, '/admin/users'),
-                    ],
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+                decoration: const BoxDecoration(
+                  gradient: AppColors.headerGradient,
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(AppTheme.radiusXl),
+                    bottomRight: Radius.circular(AppTheme.radiusXl),
                   ),
                 ),
-              ],
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Tableau de bord',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Gestion Smart Shopping',
+                            style: TextStyle(color: Colors.white.withValues(alpha: 0.85)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () async {
+                        await context.read<AppProvider>().signOut();
+                        if (context.mounted) {
+                          Navigator.pushReplacementNamed(context, '/login');
+                        }
+                      },
+                      icon: const Icon(Icons.logout_rounded, color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _dashboardButton(BuildContext context, String label, IconData icon, String route) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: () => Navigator.pushNamed(context, route),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8),
-          ],
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(backgroundColor: Colors.green.shade50, child: Icon(icon, color: Colors.green.shade700)),
-            const SizedBox(height: 24),
-            Text(label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            SliverPadding(
+              padding: const EdgeInsets.all(20),
+              sliver: SliverToBoxAdapter(
+                child: FutureBuilder<Map<String, dynamic>>(
+                  future: _loadStats(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Padding(
+                        padding: EdgeInsets.all(40),
+                        child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+                      );
+                    }
+                    if (snapshot.hasError) {
+                      return Center(child: Text('Erreur: ${snapshot.error}'));
+                    }
+                    final stats = snapshot.data ?? {};
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        GridView.count(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          crossAxisCount: isWide ? 2 : 1,
+                          mainAxisSpacing: 14,
+                          crossAxisSpacing: 14,
+                          childAspectRatio: isWide ? 2.8 : 2.4,
+                          children: [
+                            StatCard(
+                              title: 'Produits',
+                              value: '${stats['products'] ?? 0}',
+                              icon: Icons.inventory_2_rounded,
+                              color: AppColors.primary,
+                            ),
+                            StatCard(
+                              title: 'Commandes',
+                              value: '${stats['orders'] ?? 0}',
+                              icon: Icons.receipt_long_rounded,
+                              color: Colors.orange.shade700,
+                            ),
+                            StatCard(
+                              title: 'Ventes totales',
+                              value: '${(stats['sales'] ?? 0.0).toStringAsFixed(0)} TND',
+                              icon: Icons.trending_up_rounded,
+                              color: Colors.purple.shade600,
+                            ),
+                            StatCard(
+                              title: 'Utilisateurs',
+                              value: '${stats['users'] ?? 0}',
+                              icon: Icons.people_rounded,
+                              color: Colors.blue.shade600,
+                              subtitle: '${stats['cashiers'] ?? 0} caissiers',
+                            ),
+                            StatCard(
+                              title: 'Réclamations',
+                              value: '${stats['complaints'] ?? 0}',
+                              icon: Icons.support_agent_rounded,
+                              color: Colors.red.shade400,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 28),
+                        const Text(
+                          'Gestion',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 16),
+                        GridView.count(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          crossAxisCount: isWide ? 4 : 2,
+                          mainAxisSpacing: 14,
+                          crossAxisSpacing: 14,
+                          childAspectRatio: 0.95,
+                          children: [
+                            DashboardActionCard(
+                              label: 'Produits',
+                              icon: Icons.inventory_2_outlined,
+                              color: AppColors.primary,
+                              onTap: () => Navigator.pushNamed(context, '/admin/products'),
+                            ),
+                            DashboardActionCard(
+                              label: 'Utilisateurs',
+                              icon: Icons.people_outline,
+                              color: Colors.blue.shade600,
+                              onTap: () => Navigator.pushNamed(context, '/admin/users'),
+                            ),
+                            DashboardActionCard(
+                              label: 'Caissiers',
+                              icon: Icons.storefront_outlined,
+                              color: Colors.orange.shade700,
+                              onTap: () => Navigator.pushNamed(context, '/admin/cashiers'),
+                            ),
+                            DashboardActionCard(
+                              label: 'Réclamations',
+                              icon: Icons.mail_outline,
+                              color: Colors.red.shade400,
+                              onTap: () => Navigator.pushNamed(context, '/admin/complaints'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
           ],
         ),
       ),

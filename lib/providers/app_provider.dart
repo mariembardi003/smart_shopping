@@ -24,6 +24,7 @@ class AppProvider extends ChangeNotifier {
   String _searchQuery = '';
   final List<CartItem> _cartItems = [];
   final List<Order> _orders = [];
+  Order? _lastOrder;
   bool _demoProductsCreated = false;
 
   StreamSubscription<User?>? _authSubscription;
@@ -34,11 +35,26 @@ class AppProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   bool get isAuthenticated => _currentUser != null;
-  List<Product> get products => _searchQuery.isEmpty ? _products : _filteredProducts;
+  List<Product> get products =>
+      _searchQuery.isEmpty ? _products : _filteredProducts;
+
+  /// Produits visibles côté client (accueil + recherche).
+  List<Product> get clientCatalogProducts => _products
+      .where((p) => p.isFeatured || p.isPromotional)
+      .toList();
+
+  List<Product> get featuredProducts =>
+      _products.where((p) => p.isFeatured && p.stock > 0).toList();
+
+  List<Product> get promotionalProducts =>
+      _products.where((p) => p.isPromotional && p.stock > 0).toList();
   List<CartItem> get cartItems => List.unmodifiable(_cartItems);
   List<Order> get orders => List.unmodifiable(_orders);
-  double get cartTotal => _cartItems.fold(0, (sum, item) => sum + item.totalPrice);
-  int get cartItemCount => _cartItems.fold(0, (sum, item) => sum + item.quantity);
+  Order? get lastOrder => _lastOrder;
+  double get cartTotal =>
+      _cartItems.fold(0, (sum, item) => sum + item.totalPrice);
+  int get cartItemCount =>
+      _cartItems.fold(0, (sum, item) => sum + item.quantity);
 
   void initAuth() {
     _setLoading(true);
@@ -103,17 +119,19 @@ class AppProvider extends ChangeNotifier {
     _ordersSubscription?.cancel();
     if (_currentUser == null) return;
 
-    _ordersSubscription = _firestoreService.getUserOrders(_currentUser!.id).listen(
-      (orders) {
-        _orders
-          ..clear()
-          ..addAll(orders);
-        notifyListeners();
-      },
-      onError: (error) {
-        _setError(error.toString());
-      },
-    );
+    _ordersSubscription = _firestoreService
+        .getUserOrders(_currentUser!.id)
+        .listen(
+          (orders) {
+            _orders
+              ..clear()
+              ..addAll(orders);
+            notifyListeners();
+          },
+          onError: (error) {
+            _setError(error.toString());
+          },
+        );
   }
 
   Future<bool> signIn(String email, String password) async {
@@ -205,17 +223,41 @@ class AppProvider extends ChangeNotifier {
 
   void searchProducts(String query) {
     _searchQuery = query;
-    _filterProducts();
-    notifyListeners();
-  }
-
-  void _filterProducts() {
     if (_searchQuery.isEmpty) {
       _filteredProducts = _products;
     } else {
+      final q = _searchQuery.toLowerCase();
       _filteredProducts = _products.where((product) {
-        return product.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-            product.description.toLowerCase().contains(_searchQuery.toLowerCase());
+        return product.name.toLowerCase().contains(q) ||
+            product.description.toLowerCase().contains(q);
+      }).toList();
+    }
+    notifyListeners();
+  }
+
+  /// Recherche limitée aux produits vedettes / promotion (interface client).
+  void searchClientCatalog(String query) {
+    _searchQuery = query;
+    _filterClientCatalog();
+    notifyListeners();
+  }
+
+  List<Product> get clientSearchResults => _filteredProducts;
+
+  void _filterProducts() {
+    _filterClientCatalog();
+  }
+
+  void _filterClientCatalog() {
+    final catalog = clientCatalogProducts;
+    if (_searchQuery.isEmpty) {
+      _filteredProducts = catalog;
+    } else {
+      final query = _searchQuery.toLowerCase();
+      _filteredProducts = catalog.where((product) {
+        return product.name.toLowerCase().contains(query) ||
+            product.description.toLowerCase().contains(query) ||
+            product.category.toLowerCase().contains(query);
       }).toList();
     }
   }
@@ -224,18 +266,38 @@ class AppProvider extends ChangeNotifier {
     return await _firestoreService.getProductByBarcode(barcode);
   }
 
+  Future<Order?> getOrderById(String orderId) async {
+    return _firestoreService.getOrderById(orderId);
+  }
+
+  Future<bool> validateOrderPayment(String orderId) async {
+    if (_currentUser == null) return false;
+    _setLoading(true);
+    _clearError();
+    try {
+      await _firestoreService.validateOrderPayment(
+        orderId: orderId,
+        cashierId: _currentUser!.id,
+      );
+      _setLoading(false);
+      return true;
+    } catch (e) {
+      _setError(e.toString());
+      _setLoading(false);
+      return false;
+    }
+  }
+
   // Cart methods
   void addToCart(Product product) {
-    final existingIndex = _cartItems.indexWhere((item) => item.product.id == product.id);
+    final existingIndex = _cartItems.indexWhere(
+      (item) => item.product.id == product.id,
+    );
 
     if (existingIndex != -1) {
       _cartItems[existingIndex].quantity++;
     } else {
-      _cartItems.add(CartItem(
-        id: _uuid.v4(),
-        product: product,
-        quantity: 1,
-      ));
+      _cartItems.add(CartItem(id: _uuid.v4(), product: product, quantity: 1));
     }
 
     _saveCart();
@@ -331,13 +393,9 @@ class AppProvider extends ChangeNotifier {
   }
 
   // Order methods
-  Future<bool> createOrder({
-    required String shippingAddress,
-    required String phone,
-    required String paymentMethod,
-  }) async {
-    if (_currentUser == null || _cartItems.isEmpty) return false;
-    if (shippingAddress.isEmpty || phone.isEmpty || paymentMethod.isEmpty) return false;
+  Future<Order?> createOrder({required String paymentMethod}) async {
+    if (_currentUser == null || _cartItems.isEmpty) return null;
+    if (paymentMethod.isEmpty) return null;
 
     _setLoading(true);
     _clearError();
@@ -350,7 +408,7 @@ class AppProvider extends ChangeNotifier {
         totalAmount: cartTotal,
         status: OrderStatus.pending,
         createdAt: DateTime.now(),
-        shippingAddress: shippingAddress,
+        shippingAddress: null,
         paymentMethod: paymentMethod,
       );
 
@@ -358,13 +416,14 @@ class AppProvider extends ChangeNotifier {
       await _firestoreService.updateProductStock(_cartItems);
       await _firestoreService.clearCart(_currentUser!.id);
       _cartItems.clear();
+      _lastOrder = order;
       notifyListeners();
       _setLoading(false);
-      return true;
+      return order;
     } catch (e) {
       _setError(e.toString());
       _setLoading(false);
-      return false;
+      return null;
     }
   }
 
